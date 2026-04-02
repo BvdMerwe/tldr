@@ -150,11 +150,11 @@ the GloVe vocabulary (no proper nouns / niche terms).
 
 ---
 
-## Recommended Approach: Solution B
+## Chosen Approach: Solution A
 
-Solution B gives the best balance of word-relation quality, maintainability,
-and deploy simplicity. The edge function can start with just Datamuse (free,
-no key) and be upgraded later without touching the frontend.
+Pure browser SPA — no backend, no edge functions. All logic runs client-side:
+Datamuse API for word relations, IANA TLD list bundled as JSON, hack algorithm
+in TypeScript. Zero infrastructure cost, instant deploy.
 
 ---
 
@@ -242,7 +242,7 @@ no key) and be upgraded later without touching the frontend.
 | Frontend     | React + Vite + TypeScript  | Fast dev, small bundle              |
 | Styling      | Tailwind CSS               | Utility-first, no design system dep |
 | Word API     | Datamuse (free, no key)    | Synonyms, triggers, ml, CORS-ok     |
-| Edge fn      | Vercel Functions           | Co-located with frontend            |
+| Word API     | Datamuse (free, CORS-ok)   | Called directly from browser        |
 | TLD data     | IANA root zone list        | Authoritative, ~1500 entries        |
 | Deploy       | Vercel                     | Free tier, edge functions included  |
 
