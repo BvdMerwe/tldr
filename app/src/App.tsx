@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import tldList from './data/tlds.json';
 import { findHacks, type Hack } from './lib/hackEngine';
 import { getRelatedWords, type WordResult } from './lib/datamuse';
+import { checkAvailability, type AvailabilityStatus } from './lib/availability';
 
 const TLD_SET = new Set<string>(tldList as string[]);
 
@@ -12,7 +13,7 @@ interface ResultGroup {
   hacks: (Hack & { relation: RelationLabel })[];
 }
 
-function badge(relation: RelationLabel) {
+function relationBadge(relation: RelationLabel) {
   const styles: Record<RelationLabel, string> = {
     input:   'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
     synonym: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
@@ -27,6 +28,40 @@ function badge(relation: RelationLabel) {
       {labels[relation]}
     </span>
   );
+}
+
+function AvailabilityBadge({ domain }: { domain: string }) {
+  const [status, setStatus] = useState<AvailabilityStatus>('checking');
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    setStatus('checking');
+    checkAvailability(domain).then(s => {
+      if (mounted.current) setStatus(s);
+    });
+    return () => { mounted.current = false; };
+  }, [domain]);
+
+  if (status === 'checking') {
+    return <span className="text-xs text-gray-300 dark:text-gray-600 animate-pulse">checking…</span>;
+  }
+  if (status === 'available') {
+    return (
+      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
+        available
+      </span>
+    );
+  }
+  if (status === 'taken') {
+    return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">
+        taken
+      </span>
+    );
+  }
+  // unknown
+  return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -46,7 +81,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function HackRow({ hack }: { hack: Hack & { relation: RelationLabel } }) {
+function HackRow({ hack, showAvailability }: { hack: Hack & { relation: RelationLabel }; showAvailability: boolean }) {
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg transition-colors">
       <span className="font-mono text-base font-semibold text-gray-900 dark:text-gray-100">
@@ -55,13 +90,14 @@ function HackRow({ hack }: { hack: Hack & { relation: RelationLabel } }) {
       <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:inline">
         (from: {hack.word})
       </span>
-      {badge(hack.relation)}
+      {relationBadge(hack.relation)}
+      {showAvailability && <AvailabilityBadge domain={hack.domain} />}
       <CopyButton text={hack.domain} />
     </div>
   );
 }
 
-function ResultSection({ group }: { group: ResultGroup }) {
+function ResultSection({ group, showAvailability }: { group: ResultGroup; showAvailability: boolean }) {
   if (group.hacks.length === 0) return null;
   return (
     <div className="mb-6">
@@ -70,7 +106,7 @@ function ResultSection({ group }: { group: ResultGroup }) {
       </h2>
       <div className="divide-y divide-gray-100 dark:divide-gray-800">
         {group.hacks.map(h => (
-          <HackRow key={h.domain} hack={h} />
+          <HackRow key={h.domain} hack={h} showAvailability={showAvailability} />
         ))}
       </div>
     </div>
@@ -82,6 +118,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [groups, setGroups] = useState<ResultGroup[]>([]);
   const [searched, setSearched] = useState(false);
+  const [showAvailability, setShowAvailability] = useState(false);
 
   const generate = useCallback(async () => {
     const word = input.trim().toLowerCase();
@@ -110,7 +147,6 @@ export default function App() {
       }
     }
 
-    // Deduplicate across groups
     const seen = new Set(inputHacks.map(h => h.domain));
     const uniqueRelated = relatedHacks.filter(h => {
       if (seen.has(h.domain)) return false;
@@ -141,7 +177,7 @@ export default function App() {
         </div>
 
         {/* Search */}
-        <div className="flex gap-2 mb-10">
+        <div className="flex gap-2 mb-4">
           <input
             type="text"
             value={input}
@@ -158,6 +194,21 @@ export default function App() {
             {loading ? 'Searching…' : 'Generate'}
           </button>
         </div>
+
+        {/* Availability toggle */}
+        {totalCount > 0 && !loading && (
+          <div className="flex items-center gap-2 mb-8 px-1">
+            <button
+              onClick={() => setShowAvailability(v => !v)}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${showAvailability ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-700'}`}
+            >
+              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${showAvailability ? 'translate-x-4' : 'translate-x-1'}`} />
+            </button>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              Check availability <span className="text-gray-400 dark:text-gray-600">(via RDAP — may be slow)</span>
+            </span>
+          </div>
+        )}
 
         {/* Results */}
         {loading && (
@@ -178,7 +229,7 @@ export default function App() {
               {totalCount} domain{totalCount !== 1 ? 's' : ''} found
             </p>
             {groups.map(g => (
-              <ResultSection key={g.label} group={g} />
+              <ResultSection key={g.label} group={g} showAvailability={showAvailability} />
             ))}
           </div>
         )}
