@@ -4,6 +4,11 @@ import { findHacks, type Hack } from './lib/hackEngine';
 import { getRelatedWords, type WordResult } from './lib/datamuse';
 import { checkAvailability, type AvailabilityStatus } from './lib/availability';
 
+function registrable(domain: string) {
+  const parts = domain.split('.');
+  return parts.slice(-2).join('.');
+}
+
 const TLD_SET = new Set<string>(tldList as string[]);
 
 type RelationLabel = 'input' | 'synonym' | 'trigger' | 'similar';
@@ -46,17 +51,20 @@ function AvailabilityBadge({ domain }: { domain: string }) {
   if (status === 'checking') {
     return <span className="text-xs text-gray-300 dark:text-gray-600 animate-pulse">checking…</span>;
   }
+  const base = registrable(domain);
+  const suffix = base !== domain ? ` (${base})` : '';
+
   if (status === 'available') {
     return (
       <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
-        available
+        available{suffix}
       </span>
     );
   }
   if (status === 'taken') {
     return (
       <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">
-        taken
+        taken{suffix}
       </span>
     );
   }
