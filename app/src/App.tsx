@@ -11,7 +11,9 @@ function registrable(domain: string) {
 
 const TLD_SET = new Set<string>(tldList as string[]);
 
-type RelationLabel = 'input' | 'synonym' | 'trigger' | 'similar';
+const COMMON_TLDS = ['com', 'io', 'co', 'dev', 'app', 'ai', 'net', 'org'];
+
+type RelationLabel = 'input' | 'synonym' | 'trigger' | 'similar' | 'combo';
 
 interface ResultGroup {
   label: string;
@@ -24,9 +26,10 @@ function relationBadge(relation: RelationLabel) {
     synonym: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
     trigger: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
     similar: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+    combo:   'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
   };
   const labels: Record<RelationLabel, string> = {
-    input: 'exact', synonym: 'synonym', trigger: 'associated', similar: 'similar',
+    input: 'exact', synonym: 'synonym', trigger: 'associated', similar: 'similar', combo: 'combo',
   };
   return (
     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${styles[relation]}`}>
@@ -72,6 +75,22 @@ function AvailabilityBadge({ domain }: { domain: string }) {
   return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>;
 }
 
+function Toggle({ enabled, onToggle, label, hint }: { enabled: boolean; onToggle: () => void; label: string; hint: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={onToggle}
+        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${enabled ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-700'}`}
+      >
+        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-1'}`} />
+      </button>
+      <span className="text-xs text-gray-500 dark:text-gray-400">
+        {label} <span className="text-gray-400 dark:text-gray-600">({hint})</span>
+      </span>
+    </div>
+  );
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -105,8 +124,8 @@ function HackRow({ hack, showAvailability }: { hack: Hack & { relation: Relation
   );
 }
 
-function ResultSection({ group, showAvailability }: { group: ResultGroup; showAvailability: boolean }) {
-  if (group.hacks.length === 0) return null;
+function ResultSection({ group, showAvailability, hidden }: { group: ResultGroup; showAvailability: boolean; hidden?: boolean }) {
+  if (group.hacks.length === 0 || hidden) return null;
   return (
     <div className="mb-6">
       <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2 px-4">
@@ -127,6 +146,7 @@ export default function App() {
   const [groups, setGroups] = useState<ResultGroup[]>([]);
   const [searched, setSearched] = useState(false);
   const [showAvailability, setShowAvailability] = useState(false);
+  const [showCombos, setShowCombos] = useState(false);
 
   const generate = useCallback(async () => {
     const word = input.trim().toLowerCase();
@@ -162,9 +182,24 @@ export default function App() {
       return true;
     });
 
+    // Common TLD combos: input word + related words × COMMON_TLDS
+    const comboWords = [word, ...related.slice(0, 20).map(r => r.word)];
+    const comboSeen = new Set<string>();
+    const combos: (Hack & { relation: RelationLabel })[] = [];
+    for (const w of comboWords) {
+      for (const tld of COMMON_TLDS) {
+        const domain = `${w}.${tld}`;
+        if (!comboSeen.has(domain)) {
+          comboSeen.add(domain);
+          combos.push({ domain, prefix: w, tld, word: w, relation: 'combo' });
+        }
+      }
+    }
+
     setGroups([
       { label: `Hacks on "${word}"`, hacks: inputHacks },
       { label: 'Hacks on related words', hacks: uniqueRelated },
+      { label: 'Common TLD combos', hacks: combos },
     ]);
     setLoading(false);
   }, [input]);
@@ -203,18 +238,21 @@ export default function App() {
           </button>
         </div>
 
-        {/* Availability toggle */}
+        {/* Toggles */}
         {totalCount > 0 && !loading && (
-          <div className="flex items-center gap-2 mb-8 px-1">
-            <button
-              onClick={() => setShowAvailability(v => !v)}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${showAvailability ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-700'}`}
-            >
-              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${showAvailability ? 'translate-x-4' : 'translate-x-1'}`} />
-            </button>
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              Check availability <span className="text-gray-400 dark:text-gray-600">(via RDAP — may be slow)</span>
-            </span>
+          <div className="flex flex-col gap-2 mb-8 px-1">
+            <Toggle
+              enabled={showCombos}
+              onToggle={() => setShowCombos(v => !v)}
+              label="Show common TLD combos"
+              hint=".com .io .co .dev .app .ai .net .org"
+            />
+            <Toggle
+              enabled={showAvailability}
+              onToggle={() => setShowAvailability(v => !v)}
+              label="Check availability"
+              hint="via RDAP — may be slow"
+            />
           </div>
         )}
 
@@ -237,7 +275,12 @@ export default function App() {
               {totalCount} domain{totalCount !== 1 ? 's' : ''} found
             </p>
             {groups.map(g => (
-              <ResultSection key={g.label} group={g} showAvailability={showAvailability} />
+              <ResultSection
+                key={g.label}
+                group={g}
+                showAvailability={showAvailability}
+                hidden={g.label === 'Common TLD combos' && !showCombos}
+              />
             ))}
           </div>
         )}
