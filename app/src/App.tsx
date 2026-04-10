@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import tldList from './data/tlds.json';
+import corporateTldList from './data/corporateTlds.json';
 import { findHacks, type Hack } from './lib/hackEngine';
 import { getRelatedWords, type WordResult } from './lib/datamuse';
 import { checkAvailability, type AvailabilityStatus } from './lib/availability';
@@ -9,7 +10,8 @@ function registrable(domain: string) {
   return parts.slice(-2).join('.');
 }
 
-const TLD_SET = new Set<string>(tldList as string[]);
+const CORPORATE_SET = new Set<string>(corporateTldList as string[]);
+const TLD_SET = new Set<string>((tldList as string[]).filter(t => !CORPORATE_SET.has(t)));
 
 const COMMON_TLDS = ['com', 'io', 'co', 'dev', 'app', 'ai', 'net', 'org'];
 
@@ -71,7 +73,6 @@ function AvailabilityBadge({ domain }: { domain: string }) {
       </span>
     );
   }
-  // unknown
   return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>;
 }
 
@@ -124,18 +125,39 @@ function HackRow({ hack, showAvailability }: { hack: Hack & { relation: Relation
   );
 }
 
-function ResultSection({ group, showAvailability, hidden }: { group: ResultGroup; showAvailability: boolean; hidden?: boolean }) {
-  if (group.hacks.length === 0 || hidden) return null;
+function Accordion({ group, showAvailability, defaultOpen = true }: {
+  group: ResultGroup;
+  showAvailability: boolean;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (group.hacks.length === 0) return null;
   return (
-    <div className="mb-6">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2 px-4">
-        {group.label}
-      </h2>
-      <div className="divide-y divide-gray-100 dark:divide-gray-800">
-        {group.hacks.map(h => (
-          <HackRow key={h.domain} hack={h} showAvailability={showAvailability} />
-        ))}
-      </div>
+    <div className="mb-3 border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+      >
+        <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          {group.label}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400 dark:text-gray-600">{group.hacks.length}</span>
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+      {open && (
+        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          {group.hacks.map(h => (
+            <HackRow key={h.domain} hack={h} showAvailability={showAvailability} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -182,7 +204,6 @@ export default function App() {
       return true;
     });
 
-    // Common TLD combos: input word + related words × COMMON_TLDS
     const comboWords = [word, ...related.slice(0, 20).map(r => r.word)];
     const comboSeen = new Set<string>();
     const combos: (Hack & { relation: RelationLabel })[] = [];
@@ -204,7 +225,7 @@ export default function App() {
     setLoading(false);
   }, [input]);
 
-  const totalCount = groups.reduce((n, g) => n + g.hacks.length, 0);
+  const hackCount = groups.slice(0, 2).reduce((n, g) => n + g.hacks.length, 0);
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-700 dark:text-gray-300">
@@ -239,8 +260,8 @@ export default function App() {
         </div>
 
         {/* Toggles */}
-        {totalCount > 0 && !loading && (
-          <div className="flex flex-col gap-2 mb-8 px-1">
+        {hackCount > 0 && !loading && (
+          <div className="flex flex-col gap-2 mb-6 px-1">
             <Toggle
               enabled={showCombos}
               onToggle={() => setShowCombos(v => !v)}
@@ -263,24 +284,23 @@ export default function App() {
           </div>
         )}
 
-        {!loading && searched && totalCount === 0 && (
+        {!loading && searched && hackCount === 0 && (
           <div className="text-center text-gray-400 text-sm py-12">
             No domain hacks found for <strong>"{input}"</strong> or its related words.
           </div>
         )}
 
-        {!loading && totalCount > 0 && (
+        {!loading && hackCount > 0 && (
           <div>
-            <p className="text-xs text-gray-400 mb-4 px-4">
-              {totalCount} domain{totalCount !== 1 ? 's' : ''} found
-            </p>
-            {groups.map(g => (
-              <ResultSection
-                key={g.label}
-                group={g}
-                showAvailability={showAvailability}
-                hidden={g.label === 'Common TLD combos' && !showCombos}
-              />
+            {groups.map((g, i) => (
+              (g.label !== 'Common TLD combos' || showCombos) && (
+                <Accordion
+                  key={g.label}
+                  group={g}
+                  showAvailability={showAvailability}
+                  defaultOpen={i < 2}
+                />
+              )
             ))}
           </div>
         )}
